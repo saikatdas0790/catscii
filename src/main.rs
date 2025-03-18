@@ -1,24 +1,37 @@
+use pretty_hex::PrettyHex;
+
 #[tokio::main]
 async fn main() {
-    let res = reqwest::get("https://api.thecatapi.com/v1/images/search")
-        .await
-        .unwrap();
+    let image_bytes = get_cat_image_bytes().await.unwrap();
+    println!("{:?}", &image_bytes[..200].hex_dump());
+}
 
-    if !res.status().is_success() {
-        panic!("Request failed with status: {}", res.status());
-    }
-
+async fn get_cat_image_bytes() -> color_eyre::Result<Vec<u8>> {
     use serde::Deserialize;
 
     #[derive(Deserialize)]
     struct CatImage {
         url: String,
     }
+    let api_url = "https://api.thecatapi.com/v1/images/search";
+    let client = reqwest::Client::default();
 
-    let images: Vec<CatImage> = res.json().await.unwrap();
+    let image = client
+        .get(api_url)
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<Vec<CatImage>>()
+        .await?
+        .pop()
+        .ok_or_else(|| color_eyre::eyre::eyre!("The cat API returned no images"))?;
 
-    let image = images
-        .first()
-        .expect("the cat API should return at least one image");
-    println!("The image is at {}", image.url);
+    Ok(client
+        .get(image.url)
+        .send()
+        .await?
+        .error_for_status()?
+        .bytes()
+        .await?
+        .to_vec())
 }
