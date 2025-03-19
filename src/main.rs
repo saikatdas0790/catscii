@@ -1,9 +1,52 @@
+use std::str::FromStr;
+
+use artem::options::TargetType;
+use axum::{
+    Router,
+    body::BoxBody,
+    response::{IntoResponse, Response},
+    routing::get,
+};
 use image::load_from_memory;
+use reqwest::{StatusCode, header};
+use tracing::{Level, info};
+use tracing_subscriber::{filter::Targets, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() {
-    let art = get_cat_ascii_art().await.unwrap();
-    println!("{art}");
+    let filter = Targets::from_str(std::env::var("RUST_LOG").as_deref().unwrap_or("info"))
+        .expect("RUST_LOG should be a valid tracing filter");
+    tracing_subscriber::fmt()
+        .with_max_level(Level::TRACE)
+        .json()
+        .finish()
+        .with(filter)
+        .init();
+
+    let app = Router::new().route("/", get(root_get));
+
+    let addr = "0.0.0.0:8080".parse().unwrap();
+    info!("Listening on http://{addr}");
+
+    axum::Server::bind(&addr)
+        .serve(app.into_make_service())
+        .await
+        .unwrap();
+}
+
+async fn root_get() -> Response<BoxBody> {
+    match get_cat_ascii_art().await {
+        Ok(art) => (
+            StatusCode::OK,
+            [(header::CONTENT_TYPE, "text/html; charset=utf-8")],
+            art,
+        )
+            .into_response(),
+        Err(e) => {
+            println!("Something went wrong: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, "Something went wrong").into_response()
+        }
+    }
 }
 
 async fn get_cat_ascii_art() -> color_eyre::Result<String> {
@@ -36,7 +79,12 @@ async fn get_cat_ascii_art() -> color_eyre::Result<String> {
         .to_vec();
 
     let image = load_from_memory(&image_bytes)?;
-    let ascii_art = artem::convert(image, artem::options::OptionBuilder::new().build());
+    let ascii_art = artem::convert(
+        image,
+        artem::options::OptionBuilder::new()
+            .target(TargetType::HtmlFile(true, true))
+            .build(),
+    );
 
     Ok(ascii_art)
 }
