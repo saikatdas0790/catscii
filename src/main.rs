@@ -12,7 +12,7 @@ use axum::{
 use image::load_from_memory;
 use reqwest::{StatusCode, header};
 use serde::Deserialize;
-use tracing::{Level, info};
+use tracing::{Level, info, warn};
 use tracing_subscriber::{filter::Targets, layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -50,11 +50,17 @@ async fn main() {
         .route("/panic", get(panic_get))
         .with_state(state);
 
-    let addr = "0.0.0.0:8080".parse().unwrap();
-    info!("Listening on http://{addr}");
+    let quit_sig = async {
+        _ = tokio::signal::ctrl_c().await;
+        warn!("Initiating graceful shutdown");
+    };
 
+    let addr = "0.0.0.0:8080".parse().unwrap();
+    info!("Listening on {addr}");
     axum::Server::bind(&addr)
         .serve(app.into_make_service())
+        // new!                   👇
+        .with_graceful_shutdown(quit_sig)
         .await
         .unwrap();
 }
